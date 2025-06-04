@@ -28,6 +28,7 @@ import {
 } from "../ui/select";
 import { Skeleton } from "../ui/skeleton";
 import { Switch } from "../ui/switch";
+import { Textarea } from "../ui/textarea";
 
 export type FormData = CreateDNSRecord;
 
@@ -61,6 +62,7 @@ export function RecordForm({
     initData?.zone_name || "wr.do",
   );
   const [email, setEmail] = useState(user.email);
+  const isAdmin = action.indexOf("admin") > -1;
 
   const {
     handleSubmit,
@@ -74,7 +76,7 @@ export function RecordForm({
       type: initData?.type || "CNAME",
       ttl: initData?.ttl || 1,
       proxied: initData?.proxied || false,
-      comment: "Created by wr.do",
+      comment: initData?.comment || "",
       name: initData?.name ? initData.name.split(".")[0] : "",
       content: initData?.content || "",
     },
@@ -91,7 +93,9 @@ export function RecordForm({
   );
 
   const onSubmit = handleSubmit((data) => {
-    if (type === "add") {
+    if (isAdmin && type === "edit" && initData?.active === 2) {
+      handleApplyRecord(data);
+    } else if (type === "add") {
       handleCreateRecord(data);
     } else if (type === "edit") {
       handleUpdateRecord(data);
@@ -99,25 +103,28 @@ export function RecordForm({
   });
 
   const handleCreateRecord = async (data: CreateDNSRecord) => {
-    startTransition(async () => {
-      const response = await fetch(`${action}/add`, {
-        method: "POST",
-        body: JSON.stringify({
-          records: [data],
-          email,
-        }),
-      });
-
-      if (!response.ok || response.status !== 200) {
-        toast.error("Created Failed!", {
-          description: await response.text(),
+    if (siteConfig.enableSubdomainApply && data.comment!.length < 20) {
+      toast.warning("Apply reason must be at least 20 characters!");
+    } else {
+      startTransition(async () => {
+        const response = await fetch(`${action}/add`, {
+          method: "POST",
+          body: JSON.stringify({
+            records: [data],
+            email,
+          }),
         });
-      } else {
-        toast.success(`Created successfully!`);
-        setShowForm(false);
-        onRefresh();
-      }
-    });
+        if (!response.ok || response.status !== 200) {
+          toast.error("Created Failed!", {
+            description: await response.text(),
+          });
+        } else {
+          toast.success(`Created successfully!`);
+          setShowForm(false);
+          onRefresh();
+        }
+      });
+    }
   };
 
   const handleUpdateRecord = async (data: CreateDNSRecord) => {
@@ -171,13 +178,45 @@ export function RecordForm({
     }
   };
 
+  const handleApplyRecord = async (data: CreateDNSRecord) => {
+    startTransition(async () => {
+      const response = await fetch(`${action}/apply`, {
+        method: "POST",
+        body: JSON.stringify({
+          record: data,
+          userId: initData?.userId,
+          id: initData?.id,
+        }),
+      });
+      if (!response.ok || response.status !== 200) {
+        toast.error("Failed", {
+          description: await response.text(),
+        });
+      } else {
+        await response.json();
+        toast.success(`Success`);
+        setShowForm(false);
+        onRefresh();
+      }
+    });
+  };
+
   return (
     <div>
       <div className="rounded-t-lg bg-muted px-4 py-2 text-lg font-semibold">
         {type === "add" ? "Create" : "Edit"} record
       </div>
+      {siteConfig.enableSubdomainApply && (
+        <ul className="m-2 list-disc gap-1 rounded-md bg-yellow-600/10 p-2 px-5 pr-2 text-xs font-medium text-yellow-600 dark:bg-yellow-500/10 dark:text-yellow-500">
+          <li>The administrator has enabled application mode.</li>
+          <li>
+            After submission, you need to wait for administrator approval before
+            the record takes effect.
+          </li>
+        </ul>
+      )}
       <form className="p-4" onSubmit={onSubmit}>
-        {action.indexOf("admin") > -1 && (
+        {isAdmin && (
           <div className="items-center justify-start gap-4 md:flex">
             <FormSectionColumns required title="User email">
               <div className="flex w-full items-center gap-2">
@@ -207,6 +246,27 @@ export function RecordForm({
           </div>
         )}
 
+        {siteConfig.enableSubdomainApply && (
+          <FormSectionColumns
+            title="What are you planning to use the subdomain for?"
+            required
+          >
+            <div className="flex items-center gap-2">
+              <Label className="sr-only" htmlFor="comment">
+                What are you planning to use the subdomain for?
+              </Label>
+              <Textarea
+                id="comment"
+                className="flex-2 shadow-inner"
+                // size={74}
+                {...register("comment")}
+              />
+            </div>
+            <p className="p-1 text-[13px] text-muted-foreground">
+              At least 20 characters
+            </p>
+          </FormSectionColumns>
+        )}
         <div className="items-center justify-start gap-4 md:flex">
           <FormSectionColumns title="Domain" required>
             {isLoading ? (
@@ -266,7 +326,6 @@ export function RecordForm({
             <p className="p-1 text-[13px] text-muted-foreground">Required.</p>
           </FormSectionColumns>
         </div>
-
         <div className="items-center justify-start gap-4 md:flex">
           <FormSectionColumns title="Name" required>
             <div className="flex w-full items-center gap-2">
@@ -338,24 +397,7 @@ export function RecordForm({
             </div>
           </FormSectionColumns>
         </div>
-
         <div className="items-center justify-start gap-4 md:flex">
-          {/* <FormSectionColumns title="Comment">
-            <div className="flex items-center gap-2">
-              <Label className="sr-only" htmlFor="comment">
-                Comment
-              </Label>
-              <Input
-                id="comment"
-                className="flex-2 shadow-inner"
-                size={74}
-                {...register("comment")}
-              />
-            </div>
-            <p className="p-1 text-[13px] text-muted-foreground">
-              Enter your comment here (up to 100 characters)
-            </p>
-          </FormSectionColumns> */}
           <FormSectionColumns title="TTL" required>
             <Select
               onValueChange={(value: string) => {
@@ -397,7 +439,6 @@ export function RecordForm({
             </FormSectionColumns>
           )}
         </div>
-
         {/* Action buttons */}
         <div className="mt-3 flex justify-end gap-3">
           {type === "edit" && (
